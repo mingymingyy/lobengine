@@ -1,0 +1,31 @@
+# Render blueprint. Deploys straight from the GitHub repo with no CLI:
+# New → Blueprint → pick the repo. Render reads the Dockerfile.
+#
+# On the free plan a web service spins down after ~15 minutes with no
+# traffic, which drops the venue connection. That is survivable - the
+# next visitor triggers a cold start and the book resyncs from a fresh
+# snapshot - but the first request waits, and the feed is not running
+# while nobody is looking. Move plan to "starter" for a book that is
+# genuinely always on.
+services:
+  - type: web
+    name: lob-engine-live
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    region: singapore        # nearest Render region to OKX; cuts venue lag
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: VENUE
+        value: okx
+      - key: SYMBOL
+        value: BTC-USDT
+      - key: PRICE_DECIMALS
+        value: "1"
+      - key: DEPTH
+        value: "15"
+      - key: HZ
+        value: "10"
+      - key: MAX_CLIENTS
+        value: "200"

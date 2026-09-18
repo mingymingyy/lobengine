@@ -1,0 +1,26 @@
+# Repo-root requirements. Streamlit Community Cloud installs from this
+# file, so it carries the engine, the dashboard and the test/plot extras.
+#
+# The container image for the websocket server does NOT use this file -
+# it installs web/requirements.txt, which leaves out matplotlib and
+# pytest to keep the image small.
+
+# core engine
+numpy>=1.24
+
+# live capture (scripts/capture.py, web/, streamlit_app.py)
+websockets>=12.0
+
+# streamlit dashboard
+streamlit>=1.57
+altair>=5.0
+pandas>=2.0
+
+# websocket server dashboard
+uvicorn[standard]>=0.30
+
+# charts (optional --plot flags)
+matplotlib>=3.7
+
+# tests
+pytest>=7.4

@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# captures can get large; keep the directory, not the data
+data/*.jsonl
+data/*.jsonl.gz
+!data/.gitkeep

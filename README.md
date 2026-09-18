@@ -397,6 +397,30 @@ parsed version. If your parser turns out to have a bug you want to be
 able to fix it and re-run the same data; a capture of parsed objects bakes
 the bug in permanently.
 
+### Watching the book live
+
+Two front ends, one feed. Both drive the same `Feed` object in
+`web/feed.py`, so there is one venue connection, one book and one set of
+numbers behind either of them.
+
+```bash
+pip install -r requirements.txt
+
+streamlit run streamlit_app.py     # polling, ~2 Hz, free to host
+python web/server.py               # websocket push, 10 Hz, http://localhost:8000
+```
+
+Both show the ladder, spread, microprice, cumulative depth, order flow
+imbalance and the feed health counters - resyncs, reconnects, parse
+errors, sequence - because those counters are the reason to trust, or
+not trust, everything above them.
+
+The rate split is the part worth reading: the feed applies every update
+as it arrives, while a separate timer samples the book and pushes one
+payload to every viewer. Nothing queues per-message, so a burst makes
+the numbers move faster rather than making the display fall behind.
+`web/README.md` has the details and the deployment notes.
+
 ### Proving the gap recovery actually works
 
 Drop one message in every 200 and see what happens:
@@ -449,6 +473,8 @@ src/lob_engine/
   feeds/          venue adapters, async client, replay driver
 scripts/          demo, capture, analysis, benchmarks
 tests/            320 tests
+web/              live dashboard: shared feed + websocket server
+streamlit_app.py  the same feed, as a Streamlit page
 docs/architecture.md   design decisions and why
 ```
 

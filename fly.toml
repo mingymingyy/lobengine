@@ -1,0 +1,25 @@
+# fly launch --no-deploy  generates this; the parts that matter for a
+# websocket app are auto_stop_machines=false and min_machines_running=1.
+# A machine that suspends on idle drops the venue connection, and the
+# book has to resync from scratch when it wakes.
+app = "lob-engine-live"
+primary_region = "sin"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  VENUE = "okx"
+  SYMBOL = "BTC-USDT"
+  DEPTH = "15"
+  HZ = "10"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = false
+  min_machines_running = 1
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

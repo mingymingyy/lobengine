@@ -1,0 +1,12 @@
+# Dark by default so the book reads the same for every visitor, rather
+# than following whatever theme their OS happens to be in.
+[theme]
+base = "dark"
+primaryColor = "#2ea36b"
+backgroundColor = "#0b0e13"
+secondaryBackgroundColor = "#12161e"
+textColor = "#d7dce5"
+font = "monospace"
+
+[browser]
+gatherUsageStats = false

@@ -1,0 +1,6 @@
+# Everything the dashboard needs, and nothing else. The repo's own
+# requirements.txt also pulls matplotlib and pytest, which a deployed
+# container has no use for.
+numpy>=1.24          # ofi.py and latency.py import it at module level
+uvicorn[standard]>=0.30
+websockets>=12.0

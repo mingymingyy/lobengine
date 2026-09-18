@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>lob-engine — live book</title>
+<style>
+  :root {
+    --bg: #0b0e13;
+    --panel: #12161e;
+    --line: #222836;
+    --text: #d7dce5;
+    --dim: #6b7688;
+    --bid: #2ea36b;
+    --ask: #d9534f;
+    --bid-fill: rgba(46,163,107,.16);
+    --ask-fill: rgba(217,83,79,.16);
+    --accent: #e8b64c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 16px;
+    background: var(--bg); color: var(--text);
+    font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  header {
+    display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+    margin-bottom: 14px;
+  }
+  h1 { font-size: 15px; margin: 0; font-weight: 600; letter-spacing: .04em; }
+  .venue { color: var(--dim); }
+  .status { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 12px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); }
+  .dot.live { background: var(--bid); box-shadow: 0 0 8px var(--bid); }
+  .dot.down { background: var(--ask); }
+
+  .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; }
+  .card .k { color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: .07em; }
+  .card .v { font-size: 20px; margin-top: 3px; font-variant-numeric: tabular-nums; }
+  .card .s { color: var(--dim); font-size: 11px; margin-top: 2px; }
+
+  main { display: grid; gap: 12px; grid-template-columns: minmax(320px, 1fr) minmax(280px, 1fr); margin-top: 12px; }
+  @media (max-width: 760px) { main { grid-template-columns: 1fr; } }
+
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th { color: var(--dim); font-weight: 400; font-size: 11px; text-align: right; padding: 2px 6px; text-transform: uppercase; letter-spacing: .06em; }
+  td { padding: 1px 6px; text-align: right; position: relative; }
+  td.px { font-weight: 600; }
+  tr.ask td.px { color: var(--ask); }
+  tr.bid td.px { color: var(--bid); }
+  .bar { position: absolute; top: 1px; bottom: 1px; right: 0; z-index: 0; border-radius: 2px; }
+  tr.ask .bar { background: var(--ask-fill); }
+  tr.bid .bar { background: var(--bid-fill); }
+  td span { position: relative; z-index: 1; }
+  tr.spread td { text-align: center; color: var(--dim); padding: 6px 0; font-size: 11px;
+                 border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+
+  canvas { width: 100%; display: block; }
+  .label { color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: .07em; margin-bottom: 6px; }
+  .ofi-track { height: 10px; background: #0d1119; border: 1px solid var(--line); border-radius: 5px; position: relative; overflow: hidden; }
+  .ofi-track::after { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--line); }
+  #ofiFill { position: absolute; top: 0; bottom: 0; left: 50%; width: 0; background: var(--bid); transition: all .12s linear; }
+  footer { margin-top: 12px; color: var(--dim); font-size: 11px; display: flex; gap: 16px; flex-wrap: wrap; }
+  footer b { color: var(--text); font-weight: 500; }
+  .warn { color: var(--accent); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1 id="symbol">—</h1>
+  <span class="venue" id="venue"></span>
+  <div class="status"><span class="dot" id="dot"></span><span id="statusText">connecting</span></div>
+</header>
+
+<section class="grid">
+  <div class="card"><div class="k">Mid</div><div class="v" id="mid">—</div><div class="s" id="midMove">&nbsp;</div></div>
+  <div class="card"><div class="k">Spread</div><div class="v" id="spread">—</div><div class="s" id="spreadTicks">&nbsp;</div></div>
+  <div class="card"><div class="k">Microprice</div><div class="v" id="micro">—</div><div class="s" id="microTilt">&nbsp;</div></div>
+  <div class="card"><div class="k">Feed age</div><div class="v" id="age">—</div><div class="s" id="lag">&nbsp;</div></div>
+  <div class="card"><div class="k">Msg rate</div><div class="v" id="rate">—</div><div class="s" id="updates">&nbsp;</div></div>
+</section>
+
+<main>
+  <div class="card">
+    <div class="label">Order book</div>
+    <table>
+      <thead><tr><th style="text-align:left">Price</th><th>Size</th><th>Cumulative</th></tr></thead>
+      <tbody id="asks"></tbody>
+      <tbody id="mids"><tr class="spread"><td colspan="3">—</td></tr></tbody>
+      <tbody id="bids"></tbody>
+    </table>
+  </div>
+
+  <div>
+    <div class="card">
+      <div class="label">Mid price</div>
+      <canvas id="spark" height="120"></canvas>
+    </div>
+    <div class="card" style="margin-top:12px">
+      <div class="label">Order flow imbalance <span id="ofiVal" style="float:right"></span></div>
+      <div class="ofi-track"><div id="ofiFill"></div></div>
+      <div class="s" style="color:var(--dim);font-size:11px;margin-top:6px">
+        Cont–Kukanov–Stoikov, per broadcast window. Green = net buying pressure.
+      </div>
+    </div>
+    <div class="card" style="margin-top:12px">
+      <div class="label">Depth profile</div>
+      <canvas id="depth" height="110"></canvas>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <span>messages <b id="sMsgs">0</b></span>
+  <span>updates <b id="sUpd">0</b></span>
+  <span>resyncs <b id="sRes">0</b></span>
+  <span>reconnects <b id="sRec">0</b></span>
+  <span>parse errors <b id="sErr">0</b></span>
+  <span>seq <b id="sSeq">—</b></span>
+  <span>uptime <b id="sUp">0s</b></span>
+</footer>
+
+<script>
+(function () {
+  "use strict";
+
+  const $ = (id) => document.getElementById(id);
+  const nf = (n, d) => n === null || n === undefined
+    ? "—"
+    : n.toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d });
+
+  // Venues quote dust: a level can hold 1e-5 of a coin. Fixed 4dp turns
+  // those into "0.0000", which reads as an empty level that is still
+  // sitting in the ladder. Scale the precision to the number instead.
+  const nsz = (v) => {
+    if (!v) return "0";
+    const a = Math.abs(v);
+    if (a >= 1000) return v.toFixed(0);
+    if (a >= 1) return v.toFixed(3);
+    if (a >= 0.001) return v.toFixed(5);
+    return v.toExponential(1);
+  };
+
+  const mids = [];          // rolling mid history for the sparkline
+  const MAX_POINTS = 600;
+  let lastMid = null;
+  let ofiScale = 1;         // adaptive, so the bar stays readable on any symbol
+  let latest = null;
+  let lastMsgMs = 0;
+
+  // ---- websocket, with reconnect -------------------------------------
+  let ws = null, retry = 0;
+
+  function setStatus(cls, text) {
+    $("dot").className = "dot " + cls;
+    $("statusText").textContent = text;
+  }
+
+  function connect() {
+    const proto = location.protocol === "https:" ? "wss:" : "ws:";
+    ws = new WebSocket(proto + "//" + location.host + "/ws");
+
+    ws.onopen = () => { retry = 0; lastMsgMs = performance.now(); setStatus("live", "live"); };
+    ws.onmessage = (ev) => {
+      latest = JSON.parse(ev.data);
+      lastMsgMs = performance.now();
+      if (!document.hidden) paint();   // hidden tabs repaint on the way back
+    };
+    ws.onclose = () => {
+      setStatus("down", "reconnecting");
+      // Same backoff shape the feed client uses against the venue.
+      const delay = Math.min(10000, 250 * Math.pow(2, ++retry)) * (0.5 + Math.random());
+      setTimeout(connect, delay);
+    };
+    ws.onerror = () => ws.close();
+  }
+
+  // Painting is driven by the data, not by requestAnimationFrame.
+  //
+  // rAF is the usual advice, and it is wrong here. The browser suspends
+  // it in background tabs, minimised windows and occluded windows, and
+  // an rAF-driven page then sits frozen while the connection is still
+  // open and the indicator still says "live" - the one failure mode a
+  // market display must not have. The server already caps the rate at
+  // HZ, so painting straight from the message costs nothing extra.
+  function paint() {
+    if (!latest) return;
+    const d = latest;
+    latest = null;
+    try {
+      render(d);
+    } catch (err) {
+      // One malformed frame must not take the display down for good.
+      console.error("render failed", err);
+    }
+  }
+
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) paint();
+  });
+
+  // The server broadcasts on a fixed timer, so silence is a symptom.
+  // Say "stalled" rather than leaving a stale book under a live badge.
+  setInterval(() => {
+    paint();
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    const silent = performance.now() - lastMsgMs;
+    if (silent > 3000) {
+      setStatus("down", "stalled " + (silent / 1000).toFixed(0) + "s");
+    } else {
+      setStatus("live", "live");
+    }
+  }, 1000);
+
+  // ---- rendering ------------------------------------------------------
+  function render(d) {
+    $("symbol").textContent = d.symbol;
+    $("venue").textContent = d.venue + (d.ready ? "" : " · waiting for snapshot");
+
+    const dp = decimals(d);
+    $("mid").textContent = nf(d.mid, dp);
+    $("spread").textContent = nf(d.spread, dp);
+    $("spreadTicks").textContent = d.spread_ticks === null ? "" : d.spread_ticks + " ticks";
+    $("micro").textContent = nf(d.microprice, dp);
+
+    if (d.microprice !== null && d.mid !== null) {
+      const tilt = d.microprice - d.mid;
+      $("microTilt").textContent = (tilt >= 0 ? "+" : "") + tilt.toFixed(Math.min(8, dp + 2)) + " vs mid";
+      $("microTilt").style.color = tilt >= 0 ? "var(--bid)" : "var(--ask)";
+    }
+
+    if (d.mid !== null && lastMid !== null) {
+      const diff = d.mid - lastMid;
+      if (diff !== 0) {
+        $("midMove").textContent = (diff > 0 ? "▲ +" : "▼ ") + nf(diff, dp);
+        $("midMove").style.color = diff > 0 ? "var(--bid)" : "var(--ask)";
+      }
+    }
+    if (d.mid !== null) {
+      lastMid = d.mid;
+      mids.push(d.mid);
+      if (mids.length > MAX_POINTS) mids.shift();
+    }
+
+    const age = d.feed_age_ms;
+    $("age").textContent = age === null ? "—" : Math.round(age) + " ms";
+    $("age").className = "v" + (age !== null && age > 2000 ? " warn" : "");
+
+    // A negative venue lag means this host's clock is behind the venue's,
+    // not that messages arrived before they were sent. Say so rather than
+    // printing a nonsense latency.
+    const lag = d.venue_lag_ms;
+    if (lag === null) {
+      $("lag").textContent = "";
+    } else if (lag < 0) {
+      $("lag").textContent = "clock skew " + Math.round(-lag) + " ms";
+      $("lag").style.color = "var(--accent)";
+    } else {
+      $("lag").textContent = "venue lag " + Math.round(lag) + " ms";
+      $("lag").style.color = "var(--dim)";
+    }
+
+    $("rate").textContent = nf(d.stats.msg_rate, 0) + "/s";
+    $("updates").textContent = nf(d.stats.updates, 0) + " updates applied";
+
+    ladder(d, dp);
+    ofi(d);
+    sparkline();
+    depthChart(d);
+
+    $("sMsgs").textContent = d.stats.messages.toLocaleString();
+    $("sUpd").textContent = d.stats.updates.toLocaleString();
+    $("sRes").textContent = d.stats.resyncs;
+    $("sRec").textContent = d.stats.reconnects;
+    $("sErr").textContent = d.stats.parse_errors;
+    $("sSeq").textContent = d.seq === null ? "—" : d.seq;
+    $("sUp").textContent = d.stats.uptime_s + "s";
+  }
+
+  // The venue's tick size, straight from the adapter's PriceScale.
+  // Deliberately not inferred from a sample price: whenever the touch
+  // landed on a round number the ladder rendered as integers and the
+  // spread showed as "0".
+  function decimals(d) {
+    return typeof d.price_decimals === "number" ? Math.min(8, d.price_decimals) : 2;
+  }
+
+  function ladder(d, dp) {
+    const maxSz = Math.max(
+      1e-9,
+      ...d.bids.map((l) => l[1]),
+      ...d.asks.map((l) => l[1])
+    );
+
+    // Asks descend toward the spread, so the touch sits in the middle.
+    $("asks").innerHTML = d.asks.slice().reverse().map((l, i, arr) =>
+      row("ask", l, cum(arr.slice(i)), maxSz, dp)
+    ).join("");
+
+    $("bids").innerHTML = d.bids.map((l, i) =>
+      row("bid", l, cum(d.bids.slice(0, i + 1)), maxSz, dp)
+    ).join("");
+
+    const spreadCell = d.spread === null
+      ? "—"
+      : nf(d.spread, dp) + "  ·  mid " + nf(d.mid, dp);
+    $("mids").innerHTML = '<tr class="spread"><td colspan="3">' + spreadCell + "</td></tr>";
+  }
+
+  const cum = (rows) => rows.reduce((a, l) => a + l[1], 0);
+
+  function row(side, level, cumulative, maxSz, dp) {
+    const pct = Math.min(100, (level[1] / maxSz) * 100);
+    return '<tr class="' + side + '">' +
+      '<td class="px" style="text-align:left"><span>' + nf(level[0], dp) + "</span></td>" +
+      '<td><div class="bar" style="width:' + pct + '%"></div><span>' + nsz(level[1]) + "</span></td>" +
+      "<td><span>" + nsz(cumulative) + "</span></td></tr>";
+  }
+
+  function ofi(d) {
+    const v = d.ofi_window || 0;
+    ofiScale = Math.max(Math.abs(v), ofiScale * 0.97, 1e-6);  // decays back down
+    const pct = Math.min(50, (Math.abs(v) / ofiScale) * 50);
+    const fill = $("ofiFill");
+    fill.style.background = v >= 0 ? "var(--bid)" : "var(--ask)";
+    fill.style.width = pct + "%";
+    fill.style.left = v >= 0 ? "50%" : (50 - pct) + "%";
+    $("ofiVal").textContent = (v >= 0 ? "+" : "") + v.toFixed(3) +
+      "  (" + d.ofi_events + " ev)";
+    $("ofiVal").style.color = v >= 0 ? "var(--bid)" : "var(--ask)";
+  }
+
+  function fitCanvas(c) {
+    const dpr = window.devicePixelRatio || 1;
+    const w = c.clientWidth, h = c.clientHeight || 120;
+    if (c.width !== w * dpr || c.height !== h * dpr) {
+      c.width = w * dpr; c.height = h * dpr;
+    }
+    const ctx = c.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    return { ctx, w, h };
+  }
+
+  function sparkline() {
+    const c = $("spark");
+    if (!c.clientWidth || mids.length < 2) return;
+    const { ctx, w, h } = fitCanvas(c);
+    const lo = Math.min(...mids), hi = Math.max(...mids);
+    const span = hi - lo || 1;
+    const y = (v) => h - 6 - ((v - lo) / span) * (h - 12);
+    const x = (i) => (i / (mids.length - 1)) * w;
+
+    ctx.beginPath();
+    ctx.moveTo(x(0), y(mids[0]));
+    for (let i = 1; i < mids.length; i++) ctx.lineTo(x(i), y(mids[i]));
+    ctx.strokeStyle = mids[mids.length - 1] >= mids[0] ? "#2ea36b" : "#d9534f";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    ctx.lineTo(w, h); ctx.lineTo(0, h); ctx.closePath();
+    ctx.fillStyle = mids[mids.length - 1] >= mids[0]
+      ? "rgba(46,163,107,.10)" : "rgba(217,83,79,.10)";
+    ctx.fill();
+  }
+
+  // Cumulative depth either side of the touch — the classic staircase.
+  function depthChart(d) {
+    const c = $("depth");
+    if (!c.clientWidth || (!d.bids.length && !d.asks.length)) return;
+    const { ctx, w, h } = fitCanvas(c);
+
+    const bidCum = [], askCum = [];
+    let t = 0;
+    for (const l of d.bids) { t += l[1]; bidCum.push([l[0], t]); }
+    t = 0;
+    for (const l of d.asks) { t += l[1]; askCum.push([l[0], t]); }
+    if (!bidCum.length || !askCum.length) return;
+
+    const maxQ = Math.max(bidCum[bidCum.length - 1][1], askCum[askCum.length - 1][1]) || 1;
+    const loP = bidCum[bidCum.length - 1][0], hiP = askCum[askCum.length - 1][0];
+    const x = (p) => ((p - loP) / (hiP - loP || 1)) * w;
+    const y = (q) => h - 4 - (q / maxQ) * (h - 8);
+
+    const stair = (pts, color, fill) => {
+      ctx.beginPath();
+      ctx.moveTo(x(pts[0][0]), h);
+      for (const [p, q] of pts) { ctx.lineTo(x(p), y(q)); }
+      ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.stroke();
+      ctx.lineTo(x(pts[pts.length - 1][0]), h); ctx.closePath();
+      ctx.fillStyle = fill; ctx.fill();
+    };
+    stair(bidCum, "#2ea36b", "rgba(46,163,107,.14)");
+    stair(askCum, "#d9534f", "rgba(217,83,79,.14)");
+  }
+
+  connect();
+})();
+</script>
+</body>
+</html>
